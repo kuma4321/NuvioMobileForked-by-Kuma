@@ -27,17 +27,18 @@ jobs:
           SECRET_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           SECRET_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
         run: |
-          set -u
+          set +e
           url="${SECRET_URL:-}"; key="${SECRET_KEY:-}"
           if [ -z "$url" ] || [ -z "$key" ]; then
             mkdir -p /tmp/official && cd /tmp/official
             tag=$(gh release list -R NuvioMedia/NuvioMobile --limit 10 --json tagName,isDraft --jq '[.[]|select(.isDraft|not)][0].tagName')
-            echo "Release officielle : $tag"
+            echo "::notice::Release officielle : $tag ; fichiers : $(gh release view "$tag" -R NuvioMedia/NuvioMobile --json assets --jq '[.assets[].name]|join(", ")' 2>&1 | cut -c1-600)"
             gh release download "$tag" -R NuvioMedia/NuvioMobile --pattern '*.apk' --clobber || true
             apk=$(ls -S *.apk 2>/dev/null | grep -i arm64 | head -1); [ -z "$apk" ] && apk=$(ls -S *.apk | head -1)
-            echo "APK officiel : $apk"
+            echo "::notice::APK officiel retenu : ${apk:-aucun}"
             unzip -qo "$apk" 'classes*.dex' -d dex
             strings -n 20 dex/*.dex | sort -u > all.txt
+            echo "::notice::Indices : $(grep -Eio 'https://[a-z0-9.-]*(supabase|nuvio)[a-z0-9./-]*' all.txt | sort -u | head -8 | tr '\n' ' ')"
             url=$(grep -Eo '^https://[a-z0-9]{15,30}\.supabase\.co$' all.txt | head -1)
             key=$(grep -Eo '^sb_publishable_[A-Za-z0-9_-]{20,}$' all.txt | head -1)
             if [ -z "$key" ]; then
