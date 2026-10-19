@@ -292,6 +292,7 @@ private fun ExoPlayerSurface(
         )
     }
     var probeAttempted by remember(playerSourceKey) { mutableStateOf(false) }
+    var networkRecoveryAttempts by remember(playerSourceKey) { mutableStateOf(0) }
 
     val extractorsFactory = remember(sourceUrl) {
         DefaultExtractorsFactory()
@@ -625,6 +626,23 @@ private fun ExoPlayerSurface(
                         error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
                         error.cause?.toString()?.contains("UnrecognizedInputFormatException") == true
 
+                // Coupure réseau passagère : on relance silencieusement à la même position
+                // (jusqu'à 3 fois, délai croissant) au lieu d'afficher une erreur.
+                val isTransientNetworkError =
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                if (isTransientNetworkError && networkRecoveryAttempts < 3) {
+                    networkRecoveryAttempts += 1
+                    val attempt = networkRecoveryAttempts
+                    coroutineScope.launch {
+                        delay(1_000L * attempt)
+                        Log.w(TAG, "Transient network error, re-preparing (attempt $attempt)")
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }
+                    return
+                }
+
                 if (isSourceError && !probeAttempted) {
                     probeAttempted = true
                     coroutineScope.launch {
@@ -648,6 +666,7 @@ private fun ExoPlayerSurface(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) networkRecoveryAttempts = 0
                 val stateName = when (playbackState) {
                     Player.STATE_IDLE -> "IDLE"
                     Player.STATE_BUFFERING -> "BUFFERING"

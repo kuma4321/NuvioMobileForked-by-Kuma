@@ -5,6 +5,9 @@ on:
   push:
     branches: [fluide]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +20,41 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Fichier local.properties vide
         run: touch local.properties
+      - name: Configuration du compte Nuvio (serveur officiel)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECRET_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          SECRET_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+        run: |
+          set -u
+          url="${SECRET_URL:-}"; key="${SECRET_KEY:-}"
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            mkdir -p /tmp/official && cd /tmp/official
+            tag=$(gh release list -R NuvioMedia/NuvioMobile --limit 10 --json tagName,isDraft --jq '[.[]|select(.isDraft|not)][0].tagName')
+            echo "Release officielle : $tag"
+            gh release download "$tag" -R NuvioMedia/NuvioMobile --pattern '*.apk' --clobber || true
+            apk=$(ls -S *.apk 2>/dev/null | grep -i arm64 | head -1); [ -z "$apk" ] && apk=$(ls -S *.apk | head -1)
+            echo "APK officiel : $apk"
+            unzip -qo "$apk" 'classes*.dex' -d dex
+            strings -n 20 dex/*.dex | sort -u > all.txt
+            url=$(grep -Eo '^https://[a-z0-9]{15,30}\.supabase\.co$' all.txt | head -1)
+            key=$(grep -Eo '^sb_publishable_[A-Za-z0-9_-]{20,}$' all.txt | head -1)
+            if [ -z "$key" ]; then
+              for jwt in $(grep -Eo '^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' all.txt); do
+                payload=$(echo "$jwt" | cut -d. -f2 | tr '_-' '/+'); while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+                if echo "$payload" | base64 -d 2>/dev/null | grep -q '"anon"'; then key="$jwt"; break; fi
+              done
+            fi
+          fi
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            echo "::error::Configuration du compte introuvable (url=${url:+ok} cle=${key:+ok}). Ajoutez les secrets NUVIO_SUPABASE_URL et NUVIO_SUPABASE_ANON_KEY."
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "NUVIO_SUPABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "NUVIO_SUPABASE_ANON_KEY=$key" >> "$GITHUB_ENV"
+          echo "::notice::Compte Nuvio configure (serveur $url)"
       - name: Compilation de l'APK (fullDebug, universel)
         shell: bash
         run: |
