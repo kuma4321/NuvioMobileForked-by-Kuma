@@ -42,7 +42,9 @@ internal fun buildNuvioEngineConfig(
     torrentProfile: P2pTorrentProfile,
     diskCacheCapacityBytes: Long,
     memoryCacheCapacityBytes: Long = DEFAULT_ENGINE_MEMORY_CACHE_BYTES,
+    listenPort: Int = 0,
 ): NuvioEngineConfig = NuvioEngineConfig(
+    listenPort = listenPort,
     dataDirectory = stateDirectory,
     cacheDirectory = cacheDirectory,
     memoryCacheCapacityBytes = memoryCacheCapacityBytes,
@@ -230,7 +232,8 @@ actual object P2pStreamingEngine {
             phase.set("build_magnet")
             val magnetUri = buildP2pMagnetUri(
                 request.infoHash,
-                (DEFAULT_TRACKERS + request.trackers).distinct(),
+                (request.trackers + DEFAULT_TRACKERS +
+                    P2pNetworkBoost.cachedDynamicTrackers(requireContext())).distinct(),
             )
             logPhase(requestSequence, startedAtMs, phase.get())
 
@@ -296,6 +299,7 @@ actual object P2pStreamingEngine {
                 throw CancellationException("P2P stream start was cancelled")
             }
             attached = true
+            P2pNetworkBoost.acquireStreamingLocks(requireContext())
             logPhase(requestSequence, startedAtMs, phase.get())
 
             startStatsPolling(
@@ -421,6 +425,7 @@ actual object P2pStreamingEngine {
             _state.value = P2pStreamingState.Idle
             value to job
         }
+        P2pNetworkBoost.releaseStreamingLocks()
         detached.second?.cancel()
         return detached.first
     }
@@ -440,6 +445,7 @@ actual object P2pStreamingEngine {
             _state.value = terminalState
             value to job
         }
+        if (detached != null) P2pNetworkBoost.releaseStreamingLocks()
         detached?.second?.cancel()
         return detached?.first
     }
@@ -513,16 +519,26 @@ actual object P2pStreamingEngine {
             "Could not create the Nuvio Engine cache directory"
         }
         migrateNestedPayloadDirectory(cacheDirectory)
-        return NuvioEngine.create(
-            buildNuvioEngineConfig(
-                stateDirectory = stateDirectory,
-                cacheDirectory = cacheDirectory,
-                uploadEnabled = configurationKey.uploadEnabled,
-                torrentProfile = configurationKey.torrentProfile,
-                diskCacheCapacityBytes = configurationKey.diskCacheCapacityBytes,
-                memoryCacheCapacityBytes = engineMemoryCacheBytesFor(deviceTotalRamBytes(context)),
-            )
-        ).also { created ->
+        fun configFor(port: Int) = buildNuvioEngineConfig(
+            stateDirectory = stateDirectory,
+            cacheDirectory = cacheDirectory,
+            uploadEnabled = configurationKey.uploadEnabled,
+            torrentProfile = configurationKey.torrentProfile,
+            diskCacheCapacityBytes = configurationKey.diskCacheCapacityBytes,
+            memoryCacheCapacityBytes = engineMemoryCacheBytesFor(deviceTotalRamBytes(context)),
+            listenPort = port,
+        )
+        // Port stable (DHT / pairs connus réutilisables) ; repli sur un port libre si occupé.
+        val stablePort = P2pNetworkBoost.stableListenPort(context)
+        val createdEngine = try {
+            NuvioEngine.create(configFor(stablePort))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Log.w(TAG, "Stable listen port $stablePort refused, falling back to ephemeral", error)
+            NuvioEngine.create(configFor(0))
+        }
+        return createdEngine.also { created ->
             engine = created
             engineConfigurationKey = configurationKey
             observeEngineEvents(created)
@@ -598,6 +614,7 @@ actual object P2pStreamingEngine {
                             statsJob = null
                             _state.value = terminalError
                         }
+                        P2pNetworkBoost.releaseStreamingLocks()
                     }
                     NuvioEventType.StreamStopped -> {
                         if (event.requestId != 0L) return@collect
@@ -618,6 +635,7 @@ actual object P2pStreamingEngine {
                             statsJob = null
                             _state.value = error
                         }
+                        P2pNetworkBoost.releaseStreamingLocks()
                     }
                     else -> Unit
                 }

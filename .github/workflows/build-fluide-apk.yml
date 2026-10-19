@@ -20,6 +20,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Fichier local.properties vide
         run: touch local.properties
+      - name: Clé de signature fixe (mises à jour sans désinstaller)
+        shell: bash
+        env:
+          KS: ${{ secrets.FLUIDE_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$KS" ]; then printf '%s' "$KS" | base64 -d > ~/.android/debug.keystore; else cp ci/fluide-signing.jks ~/.android/debug.keystore; fi
+          keytool -list -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | tail -1
       - name: Configuration du compte Nuvio (serveur officiel)
         shell: bash
         env:
