@@ -18,7 +18,15 @@ jobs:
       - name: Fichier local.properties vide
         run: touch local.properties
       - name: Compilation de l'APK (fullDebug, universel)
-        run: ./gradlew :androidApp:assembleFullDebug -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore --stacktrace
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :androidApp:assembleFullDebug -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore --stacktrace 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            { grep -E "^e: " build.log | head -8; grep -A6 "What went wrong" build.log | tr '\n' ' ' | cut -c1-900; } | while IFS= read -r line; do echo "::error::${line:0:900}"; done
+          fi
+          exit $status
       - uses: actions/upload-artifact@v4
         with:
           name: Nuvio-Fluide-APK
