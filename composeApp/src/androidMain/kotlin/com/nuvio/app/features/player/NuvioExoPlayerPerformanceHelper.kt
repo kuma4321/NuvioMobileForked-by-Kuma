@@ -209,6 +209,8 @@ internal object NuvioExoPlayerPerformanceHelper {
         return backBufferMs.coerceAtMost(ceiling)
     }
 
+    fun totalRamBytes(context: Context): Long = deviceRamBytes(context)
+
     private fun deviceRamBytes(context: Context): Long {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         if (activityManager != null) {

@@ -41,9 +41,11 @@ internal fun buildNuvioEngineConfig(
     uploadEnabled: Boolean,
     torrentProfile: P2pTorrentProfile,
     diskCacheCapacityBytes: Long,
+    memoryCacheCapacityBytes: Long = DEFAULT_ENGINE_MEMORY_CACHE_BYTES,
 ): NuvioEngineConfig = NuvioEngineConfig(
     dataDirectory = stateDirectory,
     cacheDirectory = cacheDirectory,
+    memoryCacheCapacityBytes = memoryCacheCapacityBytes,
     diskCacheCapacityBytes = diskCacheCapacityBytes,
     torrentProfile = when (torrentProfile) {
         P2pTorrentProfile.SOFT -> NuvioTorrentProfile.Soft
@@ -56,7 +58,25 @@ internal fun buildNuvioEngineConfig(
         NuvioUploadMode.Disabled
     },
     streamInactivityTimeoutMilliseconds = 0,
+    // Garde le torrent « chaud » 10 min (défaut 60 s) : changer d'épisode, revenir en arrière
+    // ou relancer la lecture ne refait pas la découverte des pairs.
+    warmTorrentTimeoutMilliseconds = WARM_TORRENT_TIMEOUT_MS,
 )
+
+private const val DEFAULT_ENGINE_MEMORY_CACHE_BYTES = 64L * 1024L * 1024L
+private const val WARM_TORRENT_TIMEOUT_MS = 10 * 60 * 1000
+
+/** Cache mémoire du moteur P2P proportionnel à la RAM : 64 Mo (défaut) jusqu'à 256 Mo. */
+internal fun engineMemoryCacheBytesFor(totalRamBytes: Long): Long {
+    val gb = 1024L * 1024L * 1024L
+    val mb = 1024L * 1024L
+    return when {
+        totalRamBytes <= 0L -> 64L * mb
+        totalRamBytes < 3L * gb -> 64L * mb
+        totalRamBytes < 5L * gb -> 128L * mb
+        else -> 256L * mb
+    }
+}
 
 internal fun migrateNestedPayloadDirectory(cacheDirectory: File) {
     val payloadDirectory = File(cacheDirectory, "payload")
@@ -487,6 +507,9 @@ actual object P2pStreamingEngine {
                 uploadEnabled = configurationKey.uploadEnabled,
                 torrentProfile = configurationKey.torrentProfile,
                 diskCacheCapacityBytes = configurationKey.diskCacheCapacityBytes,
+                memoryCacheCapacityBytes = engineMemoryCacheBytesFor(
+                    NuvioExoPlayerPerformanceHelper.totalRamBytes(context),
+                ),
             )
         ).also { created ->
             engine = created
@@ -853,5 +876,17 @@ actual object P2pStreamingEngine {
         "udp://tracker.flatuslifir.is:6969/announce",
         "udp://tracker.ducks.party:1984/announce",
         "udp://tracker.bluefrog.pw:2710/announce",
+        "udp://open.tracker.cl:1337/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.dler.org:6969/announce",
+        "udp://explodie.org:6969/announce",
+        "udp://p4p.arenabg.com:1337/announce",
+        "udp://opentracker.io:6969/announce",
+        "udp://open.free-tracker.ga:6969/announce",
+        "udp://tracker.tiny-vps.com:6969/announce",
+        "udp://tracker-udp.gbitt.info:80/announce",
+        "udp://tracker.moeking.me:6969/announce",
+        "https://tracker.tamersunion.org:443/announce",
+        "https://tracker.gbitt.info:443/announce",
     )
 }
