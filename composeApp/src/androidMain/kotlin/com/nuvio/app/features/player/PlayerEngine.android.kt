@@ -396,6 +396,7 @@ private fun ExoPlayerSurface(
         )
             .setExtensionRendererMode(effectiveDecoderPriority)
             .setEnableDecoderFallback(true)
+            .forceEnableMediaCodecAsynchronousQueueing()
             .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
         val trackSelector = DefaultTrackSelector(context).apply {
@@ -456,6 +457,8 @@ private fun ExoPlayerSurface(
             val mediaSourceFactory = DefaultMediaSourceFactory(
                 dataSourceFactory,
                 extractorsFactory,
+            ).setLoadErrorHandlingPolicy(
+                androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(PLAYBACK_LOAD_RETRY_COUNT)
             )
 
             playerBuilder
@@ -463,6 +466,9 @@ private fun ExoPlayerSurface(
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
         }
+
+        // Garde le Wi-Fi et le CPU éveillés pendant la lecture : évite les chutes de débit écran éteint/PiP.
+        runCatching { player.setWakeMode(C.WAKE_MODE_NETWORK) }
 
         player.applySubtitleTrackPreferences(
             preferredLanguage = playerSettings.preferredSubtitleLanguage,
@@ -1407,8 +1413,21 @@ private class NuvioLibmpvView(
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
-        mpv.setOptionString("demuxer-max-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-bytes")
-        mpv.setOptionString("demuxer-max-back-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-back-bytes")
+        mpv.setOptionString("demuxer-max-bytes", "${libmpvCacheBytes(context)}").logIfMpvError("demuxer-max-bytes")
+        mpv.setOptionString("demuxer-max-back-bytes", "${libmpvBackCacheBytes(context)}").logIfMpvError("demuxer-max-back-bytes")
+        // Fluidité : lecture anticipée agressive, reprise rapide après micro-coupure réseau.
+        mpv.setOptionString("cache", "yes").logIfMpvError("cache")
+        mpv.setOptionString("cache-secs", "300").logIfMpvError("cache-secs")
+        mpv.setOptionString("demuxer-readahead-secs", "120").logIfMpvError("demuxer-readahead-secs")
+        mpv.setOptionString("cache-pause-initial", "no").logIfMpvError("cache-pause-initial")
+        mpv.setOptionString("cache-pause-wait", "3").logIfMpvError("cache-pause-wait")
+        mpv.setOptionString("network-timeout", "30").logIfMpvError("network-timeout")
+        mpv.setOptionString(
+            "stream-lavf-o",
+            "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=5",
+        ).logIfMpvError("stream-lavf-o")
+        mpv.setOptionString("vd-lavc-threads", "0").logIfMpvError("vd-lavc-threads")
+        mpv.setOptionString("framedrop", "vo").logIfMpvError("framedrop")
         mpv.setOptionString("vd-lavc-film-grain", "cpu")
         mpv.setPropertyBoolean("keep-open", true)
         mpv.setPropertyBoolean("input-default-bindings", true)
@@ -1816,8 +1835,30 @@ private data class LibmpvTrack(
     val isForced: Boolean,
 )
 
-private fun libmpvCacheBytes(): Int =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 64 * 1024 * 1024 else 32 * 1024 * 1024
+private fun deviceTotalRamMb(context: Context): Long {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return 0L
+    val info = android.app.ActivityManager.MemoryInfo()
+    am.getMemoryInfo(info)
+    return info.totalMem / (1024L * 1024L)
+}
+
+/** Cache avant de libmpv adapté à la RAM : plus de marge = moins de coupures. */
+private fun libmpvCacheBytes(context: Context): Int {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return 32 * 1024 * 1024
+    val ramMb = deviceTotalRamMb(context)
+    val mb = when {
+        ramMb <= 0L -> 64
+        ramMb < 2_500L -> 64
+        ramMb < 4_500L -> 128
+        ramMb < 7_000L -> 200
+        else -> 300
+    }
+    return mb * 1024 * 1024
+}
+
+private fun libmpvBackCacheBytes(context: Context): Int = libmpvCacheBytes(context) / 3
+
+private const val PLAYBACK_LOAD_RETRY_COUNT = 8
 
 private fun Int.logIfMpvError(option: String) {
     if (this < 0) Log.w(TAG, "libmpv option failed: $option status=$this")

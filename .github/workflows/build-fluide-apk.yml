@@ -1,0 +1,26 @@
+name: Build APK Nuvio Fluide
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fluide]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Fichier local.properties vide
+        run: touch local.properties
+      - name: Compilation de l'APK (fullDebug, universel)
+        run: ./gradlew :androidApp:assembleFullDebug -Pnuvio.android.distribution=full -Pnuvio.ios.distribution=appstore --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nuvio-Fluide-APK
+          path: androidApp/build/outputs/apk/full/debug/*.apk
+          if-no-files-found: error

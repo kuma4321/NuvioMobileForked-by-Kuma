@@ -87,15 +87,7 @@ internal object NuvioExoPlayerPerformanceHelper {
             return buildCustomLoadControl(context, bufferSettings)
         }
         if (!enabled) {
-            return DefaultLoadControl.Builder()
-                .setBackBuffer(PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS, true)
-                .setBufferDurationsMs(
-                    DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                    50_000,
-                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
-                )
-                .build()
+            return smoothHeapLoadControl(context)
         }
 
         val targetBufferMb = getSafeNativeMemoryLimitMb(context).coerceAtLeast(MIN_BUFFER_MB)
@@ -176,6 +168,38 @@ internal object NuvioExoPlayerPerformanceHelper {
             )
             .setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(backBufferMs, true)
+            .build()
+    }
+
+    /**
+     * Profil « lecture fluide » par défaut : démarrage rapide (1,5 s), long tampon avant (jusqu'à
+     * 3 min) borné par la RAM, et reprise après rebuffer plus prudente pour éviter les cycles
+     * lecture/pause en chaîne sur réseau instable.
+     */
+    private fun smoothHeapLoadControl(context: Context): DefaultLoadControl {
+        val gb = 1024L * 1024L * 1024L
+        val ram = deviceRamBytes(context)
+        val targetMb = when {
+            ram <= 0L -> 64
+            ram < 2.3 * gb -> 48
+            ram < 3.2 * gb -> 96
+            ram < 4.8 * gb -> 160
+            ram < 6.8 * gb -> 256
+            else -> 384
+        }.coerceAtMost(playbackHeapBufferMaxMb().coerceAtLeast(MIN_BUFFER_MB))
+        val maxBufferMs = if (ram in 1 until (3.2 * gb).toLong()) 90_000 else 180_000
+        Log.i(TAG, "smooth heap load control targetMb=$targetMb maxBufferMs=$maxBufferMs")
+        return DefaultLoadControl.Builder()
+            .setAllocator(DefaultAllocator(true, ALLOCATOR_SEGMENT_SIZE))
+            .setTargetBufferBytes(targetMb * 1024 * 1024)
+            .setBufferDurationsMs(
+                30_000,
+                maxBufferMs,
+                1_500,
+                4_000,
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS, true)
             .build()
     }
 
