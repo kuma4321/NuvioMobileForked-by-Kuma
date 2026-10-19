@@ -66,6 +66,14 @@ internal fun buildNuvioEngineConfig(
 private const val DEFAULT_ENGINE_MEMORY_CACHE_BYTES = 64L * 1024L * 1024L
 private const val WARM_TORRENT_TIMEOUT_MS = 10 * 60 * 1000
 
+private fun deviceTotalRamBytes(context: Context): Long {
+    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        ?: return 0L
+    val info = android.app.ActivityManager.MemoryInfo()
+    manager.getMemoryInfo(info)
+    return info.totalMem
+}
+
 /** Cache mémoire du moteur P2P proportionnel à la RAM : 64 Mo (défaut) jusqu'à 256 Mo. */
 internal fun engineMemoryCacheBytesFor(totalRamBytes: Long): Long {
     val gb = 1024L * 1024L * 1024L
@@ -507,9 +515,7 @@ actual object P2pStreamingEngine {
                 uploadEnabled = configurationKey.uploadEnabled,
                 torrentProfile = configurationKey.torrentProfile,
                 diskCacheCapacityBytes = configurationKey.diskCacheCapacityBytes,
-                memoryCacheCapacityBytes = engineMemoryCacheBytesFor(
-                    NuvioExoPlayerPerformanceHelper.totalRamBytes(context),
-                ),
+                memoryCacheCapacityBytes = engineMemoryCacheBytesFor(deviceTotalRamBytes(context)),
             )
         ).also { created ->
             engine = created
