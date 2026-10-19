@@ -52,11 +52,15 @@ internal fun buildNuvioEngineConfig(
         P2pTorrentProfile.BALANCED -> NuvioTorrentProfile.Balanced
         P2pTorrentProfile.FAST -> NuvioTorrentProfile.Fast
     },
+    // Upload plafonné : assez pour que les pairs nous débloquent (réciprocité), mais sans
+    // saturer la voie montante, ce qui étranglerait les accusés de réception et donc le débit
+    // descendant (connexions mobiles/ADSL asymétriques).
     uploadMode = if (uploadEnabled) {
-        NuvioUploadMode.Unlimited
+        NuvioUploadMode.Limited
     } else {
         NuvioUploadMode.Disabled
     },
+    uploadLimitBytesPerSecond = if (uploadEnabled) P2P_UPLOAD_LIMIT_BYTES_PER_SECOND else 0L,
     streamInactivityTimeoutMilliseconds = 0,
     // Garde le torrent « chaud » 10 min (défaut 60 s) : changer d'épisode, revenir en arrière
     // ou relancer la lecture ne refait pas la découverte des pairs.
@@ -64,6 +68,7 @@ internal fun buildNuvioEngineConfig(
 )
 
 private const val DEFAULT_ENGINE_MEMORY_CACHE_BYTES = 64L * 1024L * 1024L
+private const val P2P_UPLOAD_LIMIT_BYTES_PER_SECOND = 512L * 1024L
 private const val WARM_TORRENT_TIMEOUT_MS = 10 * 60 * 1000
 
 private fun deviceTotalRamBytes(context: Context): Long {

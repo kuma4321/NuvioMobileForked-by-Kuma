@@ -400,7 +400,18 @@ private fun ExoPlayerSurface(
             .forceEnableMediaCodecAsynchronousQueueing()
             .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
-        val trackSelector = DefaultTrackSelector(context).apply {
+        // Débit maximal : estimation initiale haute (démarre directement en haute qualité sur
+        // HLS/DASH) et adaptation qui utilise 85 % du débit mesuré (70 % par défaut).
+        val bandwidthMeter = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(context)
+            .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE_BPS)
+            .build()
+        val adaptiveFactory = androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
+            5_000,
+            25_000,
+            25_000,
+            0.85f,
+        )
+        val trackSelector = DefaultTrackSelector(context, adaptiveFactory).apply {
             var parameters = buildUponParameters()
                 .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
             if (playerSettings.tunnelingEnabled) {
@@ -444,6 +455,7 @@ private fun ExoPlayerSurface(
         val playerBuilder = ExoPlayer.Builder(context)
             .setAudioAttributes(playbackAudioAttributes, true)
             .setTrackSelector(trackSelector)
+            .setBandwidthMeter(bandwidthMeter)
             .setLoadControl(loadControl)
 
         val player = if (useLibass) {
@@ -1878,6 +1890,7 @@ private fun libmpvCacheBytes(context: Context): Int {
 private fun libmpvBackCacheBytes(context: Context): Int = libmpvCacheBytes(context) / 3
 
 private const val PLAYBACK_LOAD_RETRY_COUNT = 8
+private const val INITIAL_BITRATE_ESTIMATE_BPS = 20_000_000L
 
 private fun Int.logIfMpvError(option: String) {
     if (this < 0) Log.w(TAG, "libmpv option failed: $option status=$this")
