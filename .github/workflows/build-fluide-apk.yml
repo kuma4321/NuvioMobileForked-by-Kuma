@@ -12,12 +12,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Fichier local.properties vide
         run: touch local.properties
       - name: Clé de signature fixe (mises à jour sans désinstaller)
@@ -77,7 +77,7 @@ jobs:
             { grep -E "^e: " build.log | head -8; grep -A6 "What went wrong" build.log | tr '\n' ' ' | cut -c1-900; } | while IFS= read -r line; do echo "::error::${line:0:900}"; done
           fi
           exit $status
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Nuvio-Fluide-APK
           path: androidApp/build/outputs/apk/full/debug/*.apk
