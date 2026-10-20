@@ -28,45 +28,19 @@ jobs:
           mkdir -p ~/.android
           if [ -n "$KS" ]; then printf '%s' "$KS" | base64 -d > ~/.android/debug.keystore; else cp ci/fluide-signing.jks ~/.android/debug.keystore; fi
           keytool -list -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | tail -1
-      - name: Configuration du compte Nuvio (serveur officiel)
+      - name: Configuration officielle (compte, TMDB, Trakt)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SECRET_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-          SECRET_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
         run: |
-          set +e
-          url="${SECRET_URL:-}"; key="${SECRET_KEY:-}"
-          if [ -z "$url" ] || [ -z "$key" ]; then
-            mkdir -p /tmp/official && cd /tmp/official
-            tag=$(gh release list -R NuvioMedia/NuvioMobile --limit 10 --json tagName,isDraft --jq '[.[]|select(.isDraft|not)][0].tagName')
-            echo "::notice::Release officielle : $tag ; fichiers : $(gh release view "$tag" -R NuvioMedia/NuvioMobile --json assets --jq '[.assets[].name]|join(", ")' 2>&1 | cut -c1-600)"
-            gh release download "$tag" -R NuvioMedia/NuvioMobile --pattern '*.apk' --clobber || true
-            apk=$(ls -S *.apk 2>/dev/null | grep -i arm64 | head -1); [ -z "$apk" ] && apk=$(ls -S *.apk | head -1)
-            echo "::notice::APK officiel retenu : ${apk:-aucun}"
-            unzip -qo "$apk" 'classes*.dex' -d dex
-            strings -n 20 dex/*.dex | sort -u > all.txt
-            echo "::notice::Indices : $(grep -Eio 'https://[a-z0-9.-]*(supabase|nuvio)[a-z0-9./-]*' all.txt | sort -u | head -8 | tr '\n' ' ')"
-            url=$(grep -Eo '^https://[a-z0-9]{15,30}\.supabase\.co$' all.txt | head -1)
-            [ -z "$url" ] && url=$(grep -Eo '^https://api\.nuvio\.tv/?$' all.txt | head -1 | sed 's#/$##')
-            fallback=$(grep -Eo '^https://api-two\.nuvioapp\.space/?$' all.txt | head -1 | sed 's#/$##')
-            key=$(grep -Eo '^sb_publishable_[A-Za-z0-9_-]{20,}$' all.txt | head -1)
-            if [ -z "$key" ]; then
-              for jwt in $(grep -Eo '^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' all.txt); do
-                payload=$(echo "$jwt" | cut -d. -f2 | tr '_-' '/+'); while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
-                if echo "$payload" | base64 -d 2>/dev/null | grep -q '"anon"'; then key="$jwt"; break; fi
-              done
-            fi
-          fi
-          if [ -z "$url" ] || [ -z "$key" ]; then
-            echo "::error::Configuration du compte introuvable (url=${url:+ok} cle=${key:+ok}). Ajoutez les secrets NUVIO_SUPABASE_URL et NUVIO_SUPABASE_ANON_KEY."
-            exit 1
-          fi
-          echo "::add-mask::$key"
-          echo "NUVIO_SUPABASE_URL=$url" >> "$GITHUB_ENV"
-          echo "NUVIO_SUPABASE_ANON_KEY=$key" >> "$GITHUB_ENV"
-          [ -n "${fallback:-}" ] && echo "NUVIO_SUPABASE_FALLBACK_URL=$fallback" >> "$GITHUB_ENV"
-          echo "::notice::Compte Nuvio configure (serveur $url)"
+          bash ci/extract-official-config.sh "$RUNNER_TEMP/official.env"
+          cat "$RUNNER_TEMP/official.env" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/official.env" >> local.properties
       - name: Compilation de l'APK (fullDebug, universel)
         shell: bash
         run: |

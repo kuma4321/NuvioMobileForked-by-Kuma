@@ -198,7 +198,7 @@ internal object NuvioExoPlayerPerformanceHelper {
                 1_500,
                 4_000,
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setPrioritizeTimeOverSizeThresholds(false) // le plafond mémoire prime : pas d'OOM sur les remux 4K
             .setBackBuffer(PlaybackBufferSettings.DEFAULT_BACK_BUFFER_MS, true)
             .build()
     }

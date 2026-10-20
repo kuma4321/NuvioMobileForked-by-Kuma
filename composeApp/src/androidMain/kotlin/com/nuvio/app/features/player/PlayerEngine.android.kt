@@ -397,13 +397,13 @@ private fun ExoPlayerSurface(
         )
             .setExtensionRendererMode(effectiveDecoderPriority)
             .setEnableDecoderFallback(true)
-            .forceEnableMediaCodecAsynchronousQueueing()
             .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
         // Débit maximal : estimation initiale haute (démarre directement en haute qualité sur
         // HLS/DASH) et adaptation qui utilise 85 % du débit mesuré (70 % par défaut).
         val bandwidthMeter = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(context)
-            .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE_BPS)
+            .setInitialBitrateEstimate(C.NETWORK_TYPE_WIFI, INITIAL_BITRATE_ESTIMATE_BPS)
+            .setInitialBitrateEstimate(C.NETWORK_TYPE_ETHERNET, INITIAL_BITRATE_ESTIMATE_BPS)
             .build()
         val adaptiveFactory = androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
             5_000,
