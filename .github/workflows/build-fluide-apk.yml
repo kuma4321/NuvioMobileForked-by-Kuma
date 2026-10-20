@@ -27,7 +27,9 @@ jobs:
         run: |
           mkdir -p ~/.android
           if [ -n "$KS" ]; then printf '%s' "$KS" | base64 -d > ~/.android/debug.keystore; else cp ci/fluide-signing.jks ~/.android/debug.keystore; fi
-          keytool -list -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | tail -1
+          echo "FLUIDE_STORE_FILE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          # Numéro de version toujours croissant : Android accepte la mise à jour par-dessus.
+          echo "FLUIDE_VERSION_CODE=$((145000 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
       - name: Configuration officielle (compte, TMDB, Trakt)
         shell: bash
         env:
@@ -51,6 +53,12 @@ jobs:
             { grep -E "^e: " build.log | head -8; grep -A6 "What went wrong" build.log | tr '\n' ' ' | cut -c1-900; } | while IFS= read -r line; do echo "::error::${line:0:900}"; done
           fi
           exit $status
+      - name: Vérification de la signature
+        shell: bash
+        run: |
+          apk=$(ls androidApp/build/outputs/apk/full/debug/*.apk | head -1)
+          bt=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "::notice::APK $(basename $apk) versionCode=$FLUIDE_VERSION_CODE — $($bt/apksigner verify --print-certs $apk | grep -m1 SHA-256)"
       - uses: actions/upload-artifact@v7
         with:
           name: Nuvio-Fluide-APK

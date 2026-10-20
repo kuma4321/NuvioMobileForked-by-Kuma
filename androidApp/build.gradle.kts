@@ -55,6 +55,15 @@ android {
     compileSdkMinor = libs.versions.android.compileSdkMinor.get().toInt()
 
     signingConfigs {
+        // Fork « Fluide » : clé fixe explicite pour que chaque nouvel APK s'installe par-dessus.
+        System.getenv("FLUIDE_STORE_FILE")?.takeIf { it.isNotBlank() }?.let { fluideStore ->
+            getByName("debug") {
+                storeFile = file(fluideStore)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         create("release") {
             if (releaseKeystore != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
                 storeFile = releaseKeystore
@@ -69,7 +78,7 @@ android {
         applicationId = "com.nuvio.app"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = releaseAppVersionCode
+        versionCode = System.getenv("FLUIDE_VERSION_CODE")?.toIntOrNull() ?: releaseAppVersionCode
         versionName = releaseAppVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
